@@ -140,6 +140,7 @@ public:
 		{
 			parse(str.begin(), str.end());
 		}
+		return true;
     }
 };
 
