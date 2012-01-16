@@ -96,14 +96,17 @@ public:
         using ascii::space;
 		using qi::rule;
 
-		auto bind_initialize = boost::bind(&plt_parser_t::initialize, this);
-		auto bind_pen_down_x = boost::bind(&plt_parser_t::pen_down_x, this, _1);
-		auto bind_pen_down_y = boost::bind(&plt_parser_t::pen_down_y, this, _1);
-		auto bind_pen_up_x   = boost::bind(&plt_parser_t::pen_up_x,   this, _1);
-		auto bind_pen_up_y   = boost::bind(&plt_parser_t::pen_up_y,   this, _1);
+#define bind_initialize  boost::bind(&plt_parser_t::initialize, this)
+#define bind_pen_down_x  boost::bind(&plt_parser_t::pen_down_x, this, _1)
+#define bind_pen_down_y  boost::bind(&plt_parser_t::pen_down_y, this, _1)
+#define bind_pen_up_x    boost::bind(&plt_parser_t::pen_up_x,   this, _1)
+#define bind_pen_up_y    boost::bind(&plt_parser_t::pen_up_y,   this, _1)
 
-		auto parser = 
-            	*(
+
+        bool r = phrase_parse(first, last, 
+        
+        
+              	*(
             		char_('I')>>char_('N')[bind_initialize]>>char_(';') |
             		char_('S')>>char_('P')>>long_/*ignore*/>>char_(';') |
             		char_('P')>>char_('D')>>
@@ -120,10 +123,10 @@ public:
             				long_[bind_pen_up_x]>>char_(',')>>
             				long_[bind_pen_up_y]
             			)>>char_(';')
-            	);
-
-
-        bool r = phrase_parse(first, last, parser, space);
+            	)
+      
+        
+        , space);
 
         if (first != last)
             return false;
