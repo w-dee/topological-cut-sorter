@@ -21,11 +21,8 @@
 #include <CGAL/Quotient.h>
 #include <CGAL/Arr_segment_traits_2.h>
 #include <CGAL/Arrangement_2.h>
-#include <CGAL/Arr_naive_point_location.h>
-#include <CGAL/Arr_observer.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/config/warning_disable.hpp>
-#include <boost/spirit/include/qi.hpp>
 #include <boost/spirit/include/qi.hpp>
 #include <boost/bind.hpp>
 #include <iostream>
@@ -41,7 +38,6 @@ typedef Traits_2::X_monotone_curve_2		Segment_2;
 typedef CGAL::Arrangement_2<Traits_2>		Arrangement_2;
 typedef Arrangement_2::Vertex_handle		Vertex_handle;
 typedef Arrangement_2::Halfedge_handle		Halfedge_handle;
-typedef CGAL::Arr_naive_point_location<Arrangement_2>      Naive_pl;
 
 
 
@@ -59,89 +55,127 @@ class plt_parser_t
 	long last_x, last_y; //!< last plotter pen point
 	long tmp_x; //!< temporary value for x-axis
 	std::vector<Segment_2> vector; // returning vector
+	bool is_pen_down;
+	bool is_relative;
 
-	void initialize() { last_x = last_y = tmp_x = 0; } //!< for IN command
+	void initialize() { last_x = last_y = tmp_x = 0;
+		is_pen_down = false; is_relative = false; } //!< for IN command
 
-	void pen_down_x (const long & val) { tmp_x = val; } //!< for PD command
+	/**
+	 * common function for commands with xy position - x
+	 */
+	void move_common_x(const long & val) { tmp_x = val; }
 
-	void pen_down_y (const long & val) //!< for PD command
+	/**
+	 * common function for commands with xy position - y
+	 */
+	void move_common_y(const long & val)
 	{
-		vector.push_back(
-			Segment_2(
-				Point_2(Number_type(last_x)*scale, Number_type(last_y)*scale),
-				Point_2(Number_type(tmp_x)*scale, Number_type(val)*scale)));
-		last_x = tmp_x;
-		last_y = val;
+		long x = tmp_x;
+		long y = val;
+		if(is_relative)
+			x += last_x, y += last_y;
+		if(is_pen_down)
+			vector.push_back(
+				Segment_2(
+					Point_2(Number_type(last_x)*scale, Number_type(last_y)*scale),
+					Point_2(Number_type(     x)*scale, Number_type(     y)*scale)));
+
+		last_x = x;
+		last_y = y;
 	}
 
-	void pen_up_x (const long & val) { tmp_x = val; } //!< for PU command
-
-	void pen_up_y (const long & val) //!< for PU command
+	void pen_down () //!< for PD command
 	{
-		last_x = tmp_x;
-		last_y = val;
+		is_pen_down = true;
+	}
+
+	void pen_up () //!< for PU command
+	{
+		is_pen_down = false;
+	}
+
+	void move_rel () //!< for PR command
+	{
+		is_relative = true;
+	}
+
+	void move_abs () //!< for PA command
+	{
+		is_relative = false;
 	}
 
 public:
 
+	/**
+	 * the constructor
+	 */
 	plt_parser_t() { initialize(); }
 
+	/**
+	 * returns resulting vector
+	 */
 	std::vector<Segment_2>  & get_vector() { return vector; }
 
-    bool parse(std::string::iterator first, std::string::iterator last)
-    {
-        using qi::long_;
-        using qi::char_;
-        using qi::phrase_parse;
-        using ascii::space;
+	/**
+	 * do parse
+	 */
+	bool parse(std::string::iterator first, std::string::iterator last)
+	{
+		using qi::lit;
+		using qi::long_;
+		using qi::char_;
+		using qi::phrase_parse;
+		using ascii::space;
 		using qi::rule;
 
-#define bind_initialize  boost::bind(&plt_parser_t::initialize, this)
-#define bind_pen_down_x  boost::bind(&plt_parser_t::pen_down_x, this, _1)
-#define bind_pen_down_y  boost::bind(&plt_parser_t::pen_down_y, this, _1)
-#define bind_pen_up_x    boost::bind(&plt_parser_t::pen_up_x,   this, _1)
-#define bind_pen_up_y    boost::bind(&plt_parser_t::pen_up_y,   this, _1)
+#define bind_initialize     boost::bind(&plt_parser_t::initialize,    this)
+#define bind_move_common_x  boost::bind(&plt_parser_t::move_common_x, this, _1)
+#define bind_move_common_y  boost::bind(&plt_parser_t::move_common_y, this, _1)
+#define bind_pen_up         boost::bind(&plt_parser_t::pen_up,        this)
+#define bind_pen_down       boost::bind(&plt_parser_t::pen_down,      this)
+#define bind_move_rel       boost::bind(&plt_parser_t::move_rel,      this)
+#define bind_move_abs       boost::bind(&plt_parser_t::move_abs,      this)
 
 
-        bool r = phrase_parse(first, last, 
-        
-        
-              	*(
-            		char_('I')>>char_('N')[bind_initialize]>>char_(';') |
-            		char_('S')>>char_('P')>>long_/*ignore*/>>char_(';') |
-            		char_('P')>>char_('D')>>
-            			long_[bind_pen_down_x]>>char_(',')>>long_[bind_pen_down_y]>>
-            			*(
-            				char_(',')>>
-            				long_[bind_pen_down_x]>>char_(',')>>
-            				long_[bind_pen_down_y]
-            			)>>char_(';') |
-            		char_('P')>>char_('U')>>
-            			long_[bind_pen_up_x]>>char_(',')>>long_[bind_pen_up_y]>>
-            			*(
-            				char_(',')>>
-            				long_[bind_pen_up_x]>>char_(',')>>
-            				long_[bind_pen_up_y]
-            			)>>char_(';')
-            	)
-      
-        
-        , space);
+		bool r = phrase_parse(first, last, 
+			*(
+				// initialize commands
+				lit("IN")[bind_initialize]>>lit(';') |
 
-        if (first != last)
-            return false;
-        return r;
-    }
+				// commands with coordinates
+				(
+					lit("PD")[bind_pen_down]  |
+					lit("PU")[bind_pen_up]    |
+					lit("PR")[bind_move_rel]  |
+					lit("PA")[bind_move_abs]
+				) >>
+					*(
+						long_[bind_move_common_x]>>long_[bind_move_common_y]
+					)>>lit(';') |
 
-    bool parse(std::istream &in)
-    {
+				// unsupported commands
+				*(char_ - lit(';')) >> lit(';')
+			)
+		, space|char_(','));
+
+		if (first != last)
+			return false;
+		return r;
+	}
+
+	/**
+	 * Do parse
+	 */
+	bool parse(std::istream &in)
+	{
 		std::string str;
 		while (getline(std::cin, str))
 		{
 			parse(str.begin(), str.end());
 		}
 		return true;
-    }
+	}
 };
 
 
@@ -583,6 +617,11 @@ int main()
 	plt_parser_t parser;
 	parser.parse(std::cin);
 	segments.operator = (parser.get_vector());
+	if(segments.size() == 0)
+	{
+		std::cerr << "No line segments found." << std::endl;
+		return 3;
+	}
 
 	// build 2D arrangement
 	CGAL::insert (arr, segments.begin(), segments.end());
