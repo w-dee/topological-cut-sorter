@@ -76,10 +76,15 @@ class plt_parser_t
 		if(is_relative)
 			x += last_x, y += last_y;
 		if(is_pen_down)
-			vector.push_back(
-				Segment_2(
-					Point_2(Number_type(last_x)*scale, Number_type(last_y)*scale),
-					Point_2(Number_type(     x)*scale, Number_type(     y)*scale)));
+		{
+			if(last_x != x || last_y != y)
+			{
+				vector.push_back(
+					Segment_2(
+						Point_2(Number_type(last_x)*scale, Number_type(last_y)*scale),
+						Point_2(Number_type(     x)*scale, Number_type(     y)*scale)));
+			}
+		}
 
 		last_x = x;
 		last_y = y;
