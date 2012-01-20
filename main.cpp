@@ -30,7 +30,7 @@
 #include <vector>
 
 // typedefs
-typedef long								Number_type;
+typedef long long							Number_type;
 typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
@@ -219,98 +219,6 @@ void write_PLT(const std::vector<Segment_2>& segments)
 }
 
 class node_t;
-class edge_t;
-
-/**
- * Plan structure.
- * This structure contains all about how edges and nodes are traversed.
- */
-struct plan_t
-{
-
-	struct node_pair_t
-	{
-		const node_t * n1;
-		const node_t * n2;
-		node_pair_t(const node_t *_n1, const node_t *_n2) : n1(_n1), n2(_n2) {}
-		bool operator < (const node_pair_t & rhs) const
-		{
-			if(n1 < rhs.n1) return true;
-			if(n1 > rhs.n1) return false;
-			return n2 < rhs.n2;
-		}
-	};
-
-	struct info_t
-	{
-		int priority;
-		bool depth_first;
-	};
-
-	typedef std::map<node_pair_t, info_t> node_map_t;
-	node_map_t node_map;
-	int generation_count;
-
-	info_t & get(const node_t * n1, const node_t *n2)
-	{
-		node_pair_t c(n1, n2);
-		node_map_t::iterator i = node_map.find(c);
-		if(i == node_map.end())
-		{
-			info_t info;
-			info.priority = 0;
-			info.depth_first = true;
-			node_map.insert(node_map_t::value_type(c, info));
-			i = node_map.find(c);
-		}
-		return i->second;
-	}
-
-	void _modify()
-	{
-		int count = 0, nth;
-		for(node_map_t::iterator mi = node_map.begin();
-			mi != node_map.end(); ++mi) count ++;
-
-		if(count == 0) return;
-
-		nth = rand() % count;
-		count = 0;
-		if(rand() < int(RAND_MAX*0.05))
-		{
-			for(node_map_t::iterator mi = node_map.begin();
-				mi != node_map.end(); ++mi)
-			{
-				if(count == nth)
-				{
-					mi->second.depth_first = !mi->second.depth_first;
-					break;
-				}
-				count ++;
-			}
-		}
-		else
-		{
-			for(node_map_t::iterator mi = node_map.begin();
-				mi != node_map.end(); ++mi)
-			{
-				if(count == nth)
-				{
-					mi->second.priority += rand() % 4 - 2;
-					break;
-				}
-				count ++;
-			}
-		}
-	}
-
-	void modify()
-	{
-		int ncount = rand() % 5 + 1;
-		for(int i = 0; i < ncount; i++) _modify();
-	}
-};
-
 
 /**
  * graph "edge" class.
@@ -385,32 +293,15 @@ public:
 	 */
 	node_t(const Arrangement_2::Face & f) : face(f),  visited(false) {}
 
-	bool get_visited() const { return visited; } //!< get whether this edge is already visited or not
-	void set_visited(bool b) { visited = b; } //!< set edge visited flag
-
 	void insert_edge(edge_t * edge) { edges.push_back(edge); } //!< insert an edge to edge list
 	const std::vector<edge_t *> & get_edges() const { return edges; }
 		//!< returns edge list
 	
-	struct face_priority_compare_functor_t
-	{
-		node_t * n1;
-		plan_t & plan;
-		face_priority_compare_functor_t(node_t *_n1, plan_t & p): n1(_n1), plan(p) {}
-		bool operator ()(node_t * const a, node_t * const b)
-		{
-			return plan.get(n1, a).priority < plan.get(n1, b).priority;
-		}
-	};
-
-
 	/**
 	 * let traverse on this node.
 	 * @param		segments	an array of arrays which stores traversed line segments
-	 * @param		plan		 traversing plan
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments,
-		plan_t & plan ) 
+	void traverse(std::vector<std::vector<Segment_2> > & segments) 
 	{
 		if(visited) return;
 		visited = true;
@@ -431,7 +322,7 @@ public:
 			{
 				(*i)->set_visited(true);
 
-				// get counter face and make counterface-edge array map
+				// get counter face and make counterface - edge array map
 				node_t * counter_node =(*i)->get_counter_node(this);
 				node_edge_map_t::iterator mi = node_edge_map.find(counter_node);
 				if(mi  == node_edge_map.end())
@@ -458,112 +349,61 @@ public:
 			cy /= count*2;
 		}
 
-
 		node_vector_t node_vector;
 
-		if(plan.generation_count == 0)
+		// sort node vector by its distance ...
+		// TODO optimization
+		if(face.is_unbounded()) cx = 0, cy = 0; // for unbounded face, use machine initial point
+		node_edge_map_t tmp = node_edge_map;
+		while(tmp.size() > 0)
 		{
-			// the first time
-
-			// sort node vector by its distance ...
-			// TODO optimization
-			if(face.is_unbounded()) cx = 0, cy = 0; // for unbounded face, use machine initial point
-			node_edge_map_t tmp = node_edge_map;
-			int count = 0;
-			while(tmp.size() > 0)
+			Number_type min_dist = -1;
+			node_edge_map_t::iterator min = node_edge_map.end();
+			Number_type min_cx, min_cy;
+			for(node_edge_map_t::iterator mi = tmp.begin();
+				mi != tmp.end(); ++mi)
 			{
-				Number_type min_dist = -1;
-				node_edge_map_t::iterator min = node_edge_map.end();
-				Number_type min_cx, min_cy;
-				for(node_edge_map_t::iterator mi = tmp.begin();
-					mi != tmp.end(); ++mi)
+				Segment_2 first_segment = (*mi->second.begin())->get_segment();
+				Number_type px, py, dist;
+				px = first_segment.source().x();
+				py = first_segment.source().y();
+				dist = (px-cx)*(px-cx) + (py-cy)*(py-cy);
+				if(min_dist < 0 || dist < min_dist)
 				{
-					Segment_2 first_segment = (*mi->second.begin())->get_segment();
-					Number_type px, py, dist;
-					px = first_segment.source().x();
-					py = first_segment.source().y();
-					dist = (px-cx)*(px-cx) + (py-cy)*(py-cy);
-					if(min_dist < 0 || dist < min_dist)
-					{
-						min_dist = dist;
-						min = mi;
-						min_cx = px;
-						min_cy = py;
-					}
+					min_dist = dist;
+					min = mi;
+					min_cx = px;
+					min_cy = py;
 				}
-				// nearest edges found
-				cx = min_cx;
-				cy = min_cy;
-				node_vector.push_back(min->first);
-				plan.get(this, min->first).priority = ++count;
-//				std::cerr << this << ":" << min->first << ":" << plan.get(this, min->first).priority << std::endl;
-				tmp.erase(min);
 			}
+
+			// nearest edges found
+			cx = min_cx;
+			cy = min_cy;
+			node_vector.push_back(min->first);
+			tmp.erase(min);
 		}
-		else
-		{
-			// sort node by its priority
-			for(node_edge_map_t::iterator mi = node_edge_map.begin();
-					mi != node_edge_map.end(); ++mi)
-			{
-				node_vector.push_back(mi->first);
-			}
-
-			std::sort(node_vector.begin(), node_vector.end(),
-				face_priority_compare_functor_t(this, plan));
-
-			int count = 0;
-			for(node_vector_t::iterator ni = node_vector.begin();
-				ni != node_vector.end(); ++ni)
-			{
-//				std::cerr << this << ":" << *ni << ":" << plan.get(this, *ni).priority << std::endl;
-				++count;
-			}
-//			std::cerr << "cnt : " << count << std::endl;
-
+/*
+		for(node_edge_map_t::iterator mi = node_edge_map.begin();
+			mi != node_edge_map.end(); ++mi)
+ 		{
+			node_vector.push_back(mi->first);
 		}
-
-
+*/
 		// for all unvisited edges, recurse into the opposite face.
-		// (depth first)
 		for(node_vector_t::iterator ni = node_vector.begin();
 			ni != node_vector.end(); ++ni)
 		{
-			if(plan.get(this, *ni).depth_first)
+			std::vector<Segment_2> vector;
+			edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
+			for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
+				i != unvisited_edges.end(); ++i)
 			{
-				std::vector<Segment_2> vector;
-				edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
-				for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
-					i != unvisited_edges.end(); ++i)
-					vector.push_back((*i)->get_segment());
-				(*ni)->traverse(segments, plan);
-				segments.push_back(vector);
+				vector.push_back((*i)->get_segment());
 			}
+			(*ni)->traverse(segments);
+			segments.push_back(vector);
 		}
-
-		// (width first)
-		for(node_vector_t::iterator ni = node_vector.begin();
-			ni != node_vector.end(); ++ni)
-		{
-			if(!plan.get(this, *ni).depth_first)
-			{
-				(*ni)->traverse(segments, plan);
-			}
-		}
-		for(node_vector_t::iterator ni = node_vector.begin();
-			ni != node_vector.end(); ++ni)
-		{
-			if(!plan.get(this, *ni).depth_first)
-			{
-				std::vector<Segment_2> vector;
-				edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
-				for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
-					i != unvisited_edges.end(); ++i)
-					vector.push_back((*i)->get_segment());
-				segments.push_back(vector);
-			}
-		}
-
 	}
 
 };
@@ -600,18 +440,6 @@ public:
 	}
 
 	/**
-	 * reset all visited flags
-	 */
-	void reset()
-	{
-		for(std::vector<node_t *>::iterator i = nodes.begin(); i != nodes.end(); ++i)
-			(*i)->set_visited(false);
-		for(std::vector<edge_t *>::iterator i = edges.begin(); i != edges.end(); ++i)
-			(*i)->set_visited(false);
-	}
-
-
-	/**
 	 * returns unbounded (most outer) face
 	 */
 	const Arrangement_2::Face * get_unbouded_face() const { return unbounded_face; }
@@ -628,7 +456,6 @@ public:
 		{
 			// insert a map
 			node_t * new_node = new node_t(face);
-			nodes.push_back(new_node);
 			face_node_map.insert(face_node_map_t::value_type(&face, new_node));
 //			std::cerr << "map " << &face << " made" << std::endl;
 			if(face.is_unbounded())
@@ -666,14 +493,12 @@ public:
 	/**
 	 * start traversing from unbounded edge
 	 * @segments an array of arrays which stores traversed line segments	
-	 * @param		plan		traversing plan
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments,
-	 		plan_t & plan)
+	void traverse(std::vector<std::vector<Segment_2> > & segments)
 	{
 		node_t * unbounded_node =
 			ensure_node(*unbounded_face);
-		unbounded_node->traverse(segments, plan);
+		unbounded_node->traverse(segments);
 	}
 
 };
@@ -782,9 +607,6 @@ static void simple_cut_sort(std::vector<Segment_2>& segments, Segment_2 &last_se
 	}
 }
 
-
-#define GA_ITER 10
-
 /**
  * the main function
  */
@@ -812,85 +634,42 @@ int main()
 	// construct node-edge graph
 	construct_edge_graph(graph, arr);
 
-	// here we do GA to find almost-good cutting order
-	plan_t best_plan;
-	double best_distance = -1.0;
-	std::vector<Segment_2> best_segments;
-	for(int ga_iter = 0; ga_iter < GA_ITER; ga_iter++)
+	// traverse the graph with topological order
+	graph.traverse(tmp_segments);
+
+	// do simple cut-sort and flatten the tmp_segments
+	Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
+	segments.clear();
+	for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
+		i != tmp_segments.end(); ++i)
 	{
-		// modify plan randomly
-		plan_t plan = best_plan;
-		plan.generation_count = ga_iter;
-		plan.modify();
-
-		// traverse the graph with topological order
-		graph.reset();
-		tmp_segments.clear();
-		graph.traverse(tmp_segments, plan);
-
-		// do simple cut-sort and flatten the tmp_segments
-		Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
-		segments.clear();
-		for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
-			i != tmp_segments.end(); ++i)
-		{
-			simple_cut_sort(*i, last_segment);
-			for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
-				segments.push_back(*j);
-		}
-
-		// some line segments are reverse in direction due to the algorithm above,
-		// check them and make good. 
-		// and also evaluates total route distance.
-		double distance = 0.0;
-		double last_x = 0, last_y = 0;
-		for(std::vector<Segment_2>::iterator i = segments.begin();
-			i != segments.end(); ++i)
-		{
-			// check reversed segements;
-			std::vector<Segment_2>::iterator prev = i;
-			std::vector<Segment_2>::iterator next = i;
-			++next;
-			if(next != segments.end())
-			{
-				bool continued = false;
-				if(i != segments.begin())
-				{
-					--prev;
-					continued = prev->target() == i->source();
-				}
-
-				if(!continued && i->source() == next->source())
-					*i = Segment_2(i->target(), i->source());
-			}
-
-			// compute distance.
-			double x1,y1,x2,y2;
-			x1 = i->source().x();
-			y1 = i->source().y();
-			x2 = i->target().x();
-			y2 = i->target().y();
-
-			distance +=
-				sqrt( (x1-last_x)*(x1-last_x) + (y1-last_y)*(y1-last_y))  +
-				sqrt( (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1) );
-			last_x = x2;
-			last_y = y2;
-		}
-
-		// choose best result
-		if(best_distance < 0.0 || distance < best_distance)
-		{
-			std::cerr << ga_iter <<  " : ";
-			std::cerr << distance << std::endl;
-			best_distance = distance;
-			best_segments = segments;
-			best_plan = plan;
-		}
+		simple_cut_sort(*i, last_segment);
+		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
+			segments.push_back(*j);
 	}
 
+	// some line segments are reverse in direction due to the algorithm above,
+	// check them and make good. 
+	for(std::vector<Segment_2>::iterator i = segments.begin();; ++i)
+	{
+		// check reversed segements;
+		std::vector<Segment_2>::iterator prev = i;
+		std::vector<Segment_2>::iterator next = i;
+		++next;
+		if(next == segments.end()) break;
+		bool continued = false;
+		if(i != segments.begin())
+		{
+			--prev;
+			continued = prev->target() == i->source();
+		}
+
+		if(!continued && i->source() == next->source())
+			*i = Segment_2(i->target(), i->source());
+	}	
+
 	// write PLT out
-	write_PLT(best_segments);
+	write_PLT(segments);
 
 	return (0);
 }
