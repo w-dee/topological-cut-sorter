@@ -666,7 +666,7 @@ int main()
 				(i == segments.end()-1 ) ? ((ti+1)->begin()) : (i+1);
 
 			// check continuity
-			bool continued = continued = prev->target() == i->source();
+			bool continued = prev->target() == i->source();
 
 			// check segment direction
 			if(!continued && i->source() == next->source())
