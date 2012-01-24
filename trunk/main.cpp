@@ -52,8 +52,8 @@ namespace ascii = boost::spirit::ascii;
 
 class plt_parser_t
 {
-	long last_x, last_y; //!< last plotter pen point
-	long tmp_x; //!< temporary value for x-axis
+	double last_x, last_y; //!< last plotter pen point
+	double tmp_x; //!< temporary value for x-axis
 	std::vector<Segment_2> vector; // returning vector
 	bool is_pen_down;
 	bool is_relative;
@@ -64,15 +64,15 @@ class plt_parser_t
 	/**
 	 * common function for commands with xy position - x
 	 */
-	void move_common_x(const long & val) { tmp_x = val; }
+	void move_common_x(const double & val) { tmp_x = val; }
 
 	/**
 	 * common function for commands with xy position - y
 	 */
-	void move_common_y(const long & val)
+	void move_common_y(const double & val)
 	{
-		long x = tmp_x;
-		long y = val;
+		double x = tmp_x;
+		double y = val;
 		if(is_relative)
 			x += last_x, y += last_y;
 		if(is_pen_down)
@@ -81,8 +81,8 @@ class plt_parser_t
 			{
 				vector.push_back(
 					Segment_2(
-						Point_2(Number_type(last_x)*scale, Number_type(last_y)*scale),
-						Point_2(Number_type(     x)*scale, Number_type(     y)*scale)));
+						Point_2(Number_type(last_x*scale), Number_type(last_y*scale)),
+						Point_2(Number_type(     x*scale), Number_type(     y*scale))));
 			}
 		}
 
@@ -128,7 +128,7 @@ public:
 	bool parse(std::string::iterator first, std::string::iterator last)
 	{
 		using qi::lit;
-		using qi::long_;
+		using qi::double_;
 		using qi::char_;
 		using qi::phrase_parse;
 		using ascii::space;
@@ -156,7 +156,7 @@ public:
 					lit("PA")[bind_move_abs]
 				) >>
 					*(
-						long_[bind_move_common_x]>>long_[bind_move_common_y]
+						double_[bind_move_common_x]>>double_[bind_move_common_y]
 					)>>lit(';') |
 
 				// unsupported commands
