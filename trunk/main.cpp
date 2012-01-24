@@ -146,7 +146,7 @@ public:
 		bool r = phrase_parse(first, last, 
 			*(
 				// initialize commands
-				lit("IN")[bind_initialize]>>lit(';') |
+				lit("IN")[bind_initialize]>>(char_(';')|char_('\n')) |
 
 				// commands with coordinates
 				(
@@ -157,12 +157,12 @@ public:
 				) >>
 					*(
 						double_[bind_move_common_x]>>double_[bind_move_common_y]
-					)>>lit(';') |
+					)>>(char_(';')|char_('\n')) |
 
 				// unsupported commands
-				*(char_ - lit(';')) >> lit(';')
+				*(char_ - (char_(';')|char_('\n'))) >> (char_(';')|char_('\n'))
 			)
-		, space|char_(','));
+		, (space - char_('\n')) |char_(','));
 
 		if (first != last)
 			return false;
