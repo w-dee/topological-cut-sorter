@@ -34,7 +34,7 @@ typedef long long							Number_type;
 typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
-typedef Traits_2::X_monotone_curve_2		Segment_2;
+typedef Traits_2::Curve_2					Segment_2;
 typedef CGAL::Arrangement_2<Traits_2>		Arrangement_2;
 typedef Arrangement_2::Vertex_handle		Vertex_handle;
 typedef Arrangement_2::Halfedge_handle		Halfedge_handle;
@@ -605,6 +605,7 @@ static void simple_cut_sort(std::vector<Segment_2>& segments, Segment_2 &last_se
 		last_segment = *min;
 		list.erase(min);
 	}
+
 }
 
 /**
@@ -637,36 +638,50 @@ int main()
 	// traverse the graph with topological order
 	graph.traverse(tmp_segments);
 
-	// do simple cut-sort and flatten the tmp_segments
+	// do simple cut-sort
 	Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
-	segments.clear();
 	for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
 		i != tmp_segments.end(); ++i)
 	{
 		simple_cut_sort(*i, last_segment);
-		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
-			segments.push_back(*j);
 	}
 
 	// some line segments are reverse in direction due to the algorithm above,
 	// check them and make good. 
-	for(std::vector<Segment_2>::iterator i = segments.begin();; ++i)
+	for(std::vector<std::vector<Segment_2> > ::iterator ti = tmp_segments.begin();
+		ti != tmp_segments.end(); ++ti)
 	{
-		// check reversed segements;
-		std::vector<Segment_2>::iterator prev = i;
-		std::vector<Segment_2>::iterator next = i;
-		++next;
-		if(next == segments.end()) break;
-		bool continued = false;
-		if(i != segments.begin())
+		std::vector<Segment_2> & segments = *ti;
+		for(std::vector<Segment_2>::iterator i = segments.begin();
+			i!= segments.end(); ++i)
 		{
-			--prev;
-			continued = prev->target() == i->source();
-		}
+			// check reversed segements
+			
+			// get previous and next line segments
+			if(i == segments.begin() && ti == tmp_segments.begin()) continue;
+			std::vector<Segment_2>::iterator prev = 
+				(i == segments.begin()) ? ((ti-1)->end()-1)  : (i-1);
+			if(i == segments.end()-1  && ti == tmp_segments.end()-1 ) continue;
+			std::vector<Segment_2>::iterator next =
+				(i == segments.end()-1 ) ? ((ti+1)->begin()) : (i+1);
 
-		if(!continued && i->source() == next->source())
-			*i = Segment_2(i->target(), i->source());
-	}	
+			// check continuity
+			bool continued = continued = prev->target() == i->source();
+
+			// check segment direction
+			if(!continued && i->source() == next->source())
+				*i = Segment_2(i->target(), i->source());
+		}
+	}
+
+	// flatten segments
+	segments.clear();
+	for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
+		i != tmp_segments.end(); ++i)
+	{
+		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
+			segments.push_back(*j);
+	}
 
 	// write PLT out
 	write_PLT(segments);
