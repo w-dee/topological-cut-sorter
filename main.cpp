@@ -436,7 +436,7 @@ public:
 	 * @param		last_seg	last line segment
 	 */
 	void traverse(std::vector<std::vector<Segment_2> > & segments,
-		const partitioner_t &p, const Segment_2 last_seg) 
+		const partitioner_t &p, Segment_2 &last_seg) 
 	{
 		if(visited) return;
 		visited = true;
@@ -487,40 +487,73 @@ public:
 			Number_type min_dist = -1;
 			node_edge_map_t::iterator min = node_edge_map.end();
 			Number_type min_cx, min_cy;
+			Segment_2 min_seg;
 			for(node_edge_map_t::iterator mi = tmp.begin();
 				mi != tmp.end(); ++mi)
 			{
-				Segment_2 first_segment = (*mi->second.begin())->get_segment();
-				Number_type px, py, dist1, dist2, dist,
-					cx1, cy1, cx2, cy2;
-				px = first_segment.source().x();
-				py = first_segment.source().y();
-				cx1 = last_seg2.source().x();
-				cy1 = last_seg2.source().y();
-				dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
-				cx2 = last_seg2.target().x();
-				cy2 = last_seg2.target().y();
-				dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
-				dist = std::min(dist1, dist2);
-				if(min_dist < 0 || dist < min_dist)
+				edge_vector_t & edges = mi->second;
+				for(edge_vector_t::iterator ei = edges.begin();
+					ei != edges.end(); ++ei)
 				{
-					min_dist = dist;
-					min = mi;
-					if(is_first)
+					Segment_2 lseg = (*ei)->get_segment();
+					Number_type px, py, dist1, dist2, dist,
+						cx1, cy1, cx2, cy2;
+
+					px = lseg.source().x();
+					py = lseg.source().y();
+					cx1 = last_seg2.source().x();
+					cy1 = last_seg2.source().y();
+					dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
+					cx2 = last_seg2.target().x();
+					cy2 = last_seg2.target().y();
+					dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
+					dist = std::min(dist1, dist2);
+
+					px = lseg.target().x();
+					py = lseg.target().y();
+					cx1 = last_seg2.source().x();
+					cy1 = last_seg2.source().y();
+					dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
+					cx2 = last_seg2.target().x();
+					cy2 = last_seg2.target().y();
+					dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
+					dist = std::min(dist, std::min(dist1, dist2));
+
+					if((*ei)->is_invisible(p))
+						dist += (1<<30); // low priority for invisible lines
+					if(min_dist < 0 || dist < min_dist)
 					{
-						is_first = false;
-						nearest_seg = first_segment;
+						min_dist = dist;
+						min = mi;
+						min_seg = lseg;
 					}
 				}
 			}
 
 			// nearest edges found
-			last_seg2 = (*min->second.begin())->get_segment();
+			if(is_first)
+			{
+				is_first = false;
+				nearest_seg = min_seg;
+			}
+			last_seg2 = min_seg;
 			node_vector.push_back(min->first);
+
+
+			std::vector<Segment_2> vector;
+			edge_vector_t & unvisited_edges = min->second;
+			for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
+				i != unvisited_edges.end(); ++i)
+				vector.push_back((*i)->get_segment());
+			min->first->traverse(segments, p, min_seg);
+			last_seg2 = min_seg;
+			segments.push_back(vector);
+
 			tmp.erase(min);
 		}
+		last_seg = last_seg2;
 
-
+#if 0
 
 		// for all unvisited edges, recurse into the opposite face.
 		// (depth first)
@@ -538,6 +571,8 @@ public:
 				segments.push_back(vector);
 			}
 		}
+
+#endif
 	}
 
 };
