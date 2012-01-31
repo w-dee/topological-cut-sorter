@@ -21,6 +21,8 @@
 #include <CGAL/Quotient.h>
 #include <CGAL/Arr_segment_traits_2.h>
 #include <CGAL/Arrangement_2.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/config/warning_disable.hpp>
 #include <boost/spirit/include/qi.hpp>
@@ -218,6 +220,109 @@ void write_PLT(const std::vector<Segment_2>& segments)
 	file << "PU;" << std::endl; // last PU command and finish the line
 }
 
+
+/**
+ * a class for partitioning a polygon into convecies.
+ */
+class partitioner_t
+{
+	typedef Kernel K;
+
+	typedef CGAL::Triangulation_vertex_base_2<K>                     Vb;
+	typedef CGAL::Constrained_triangulation_face_base_2<K>           Fb;
+	typedef CGAL::Triangulation_data_structure_2<Vb,Fb>              TDS;
+	typedef CGAL::Exact_predicates_tag                               Itag;
+	typedef CGAL::Constrained_Delaunay_triangulation_2<K, TDS, Itag> CDT;
+	typedef CDT::Point          Point;
+
+	struct lineseg_t
+	{
+		Number_type x1;
+		Number_type y1;
+		Number_type x2;
+		Number_type y2;
+		lineseg_t(
+			Number_type _x1,
+			Number_type _y1, 
+			Number_type _x2, 
+			Number_type _y2): x1(_x1), y1(_y1), x2(_x2), y2(_y2) {};
+		bool operator < (const lineseg_t &rhs ) const
+		{
+			if(x1 < rhs.x1) return true;
+			if(x1 > rhs.x1) return false;
+			if(y1 < rhs.y1) return true;
+			if(y1 > rhs.y1) return false;
+			if(x2 < rhs.x2) return true;
+			if(x2 > rhs.x2) return false;
+			if(y2 < rhs.y2) return true;
+			if(y2 > rhs.y2) return false;
+			return false;
+		}
+	};
+	typedef std::map<lineseg_t, int> lineseg_map_t;
+	lineseg_map_t map;
+
+public:
+	void do_partition(Arrangement_2 & arr)
+	{
+		CDT cdt;
+		Arrangement_2::Edge_const_iterator    eit;
+		for (eit = arr.edges_begin(); eit != arr.edges_end(); ++eit)
+		{
+			Point p1(eit->source()->point().x(), eit->source()->point().y());
+			Point p2(eit->target()->point().x(), eit->target()->point().y());
+			cdt.insert_constraint(p1, p2);
+		}
+
+		std::vector<Segment_2> segments;
+		for (CDT::Finite_edges_iterator eit = cdt.finite_edges_begin();
+			eit != cdt.finite_edges_end(); ++eit)
+		{
+			if (!cdt.is_constrained(*eit))
+			{
+				TDS::Face_handle f1 = eit->first;
+				int vi = eit->second;
+				int ccw = cdt.tds().ccw(vi);
+				int cw  = cdt.tds().cw(vi);
+				TDS::Vertex_handle v1 = f1->vertex(ccw);
+				TDS::Vertex_handle v2 = f1->vertex(cw);
+				Number_type x1,y1,x2,y2;
+				Point_2 p1(x1=v1->point().x(), y1=v1->point().y());
+				Point_2 p2(x2=v2->point().x(), y2=v2->point().y());
+
+				if(sqrt( (double)(x1-x2) * (double)(x1-x2) +
+				 		 (double)(y1-y2) * (double)(y1-y2) ) < 5000.0)
+				{
+
+					segments.push_back(Segment_2(p1, p2));
+
+					map.insert(lineseg_map_t::value_type(lineseg_t(
+						v1->point().x(), v1->point().y(),
+						v2->point().x(), v2->point().y()), 0));
+
+				}
+			}
+			
+		}
+		CGAL::insert (arr, segments.begin(), segments.end());
+	}
+
+	bool should_ignore(const Segment_2 &s) const
+	{
+		Number_type x1 = s.source().x();
+		Number_type y1 = s.source().y();
+		Number_type x2 = s.target().x();
+		Number_type y2 = s.target().y();
+		lineseg_map_t::const_iterator mi;
+		mi = map.find(lineseg_t(x1, y1, x2, y2));
+		if(mi != map.end()) return true;
+		mi = map.find(lineseg_t(x2, y2, x1, y1));
+		if(mi != map.end()) return true;
+		return false;
+	}
+};
+
+
 class node_t;
 
 /**
@@ -383,13 +488,7 @@ public:
 			node_vector.push_back(min->first);
 			tmp.erase(min);
 		}
-/*
-		for(node_edge_map_t::iterator mi = node_edge_map.begin();
-			mi != node_edge_map.end(); ++mi)
- 		{
-			node_vector.push_back(mi->first);
-		}
-*/
+
 		// for all unvisited edges, recurse into the opposite face.
 		for(node_vector_t::iterator ni = node_vector.begin();
 			ni != node_vector.end(); ++ni)
@@ -618,6 +717,7 @@ int main()
 
 	std::vector<Segment_2> segments;
 	std::vector<std::vector<Segment_2> >  tmp_segments;
+	partitioner_t partitioner;
 
 	// load PLT
 	plt_parser_t parser;
@@ -631,6 +731,9 @@ int main()
 
 	// build 2D arrangement
 	CGAL::insert (arr, segments.begin(), segments.end());
+
+	// do partitioning
+	partitioner.do_partition(arr);
 
 	// construct node-edge graph
 	construct_edge_graph(graph, arr);
@@ -680,7 +783,11 @@ int main()
 		i != tmp_segments.end(); ++i)
 	{
 		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
-			segments.push_back(*j);
+		{
+			// skip line segments inserted by partitioner
+			if(!partitioner.should_ignore(*j))
+				segments.push_back(*j);
+		}
 	}
 
 	// write PLT out
