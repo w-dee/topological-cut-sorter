@@ -307,7 +307,7 @@ public:
 		CGAL::insert (arr, segments.begin(), segments.end());
 	}
 
-	bool should_ignore(const Segment_2 &s) const
+	bool is_invisible(const Segment_2 &s) const
 	{
 		Number_type x1 = s.source().x();
 		Number_type y1 = s.source().y();
@@ -353,6 +353,11 @@ public:
 	node_t * get_node1() const { return node1; } //!< returns node1
 	node_t * get_node2() const { return node2; } //!< returns node2
 
+	bool is_invisible(const partitioner_t &p) const
+	{
+		return p.is_invisible(get_segment());
+	}
+
 	/**
 	 * Returns CGAL's Segment_2 format line segment
 	 */
@@ -390,23 +395,48 @@ class node_t
 	std::vector<edge_t *> edges; //!< list of edges
 	bool visited; //!< visited flag used in traversing
 
+	bool has_invisible_edges_cache;
+	bool got_invisible_edges;
 
 public:
 	/**
 	 * The constructor.
 	 * @param	f	CGAL's Face
 	 */
-	node_t(const Arrangement_2::Face & f) : face(f),  visited(false) {}
+	node_t(const Arrangement_2::Face & f) :
+		face(f),  visited(false),
+		has_invisible_edges_cache(false),
+		got_invisible_edges(false) {}
 
 	void insert_edge(edge_t * edge) { edges.push_back(edge); } //!< insert an edge to edge list
 	const std::vector<edge_t *> & get_edges() const { return edges; }
 		//!< returns edge list
-	
+
+	bool has_invisible_edges(const partitioner_t &p)
+	{
+		if(got_invisible_edges) return has_invisible_edges_cache;
+		for(std::vector<edge_t *>::iterator i = edges.begin();
+			i != edges.end(); ++i)
+		{
+			if((*i)->is_invisible(p))
+			{
+				has_invisible_edges_cache = true;
+				break;
+			}
+		}
+		got_invisible_edges = true;
+		std::cerr << "face " << this << " has invisible edges : " << has_invisible_edges_cache << std::endl;
+		return has_invisible_edges_cache;
+	}
+
 	/**
 	 * let traverse on this node.
 	 * @param		segments	an array of arrays which stores traversed line segments
+	 * @param		p			a partitinoer object
+	 * @param		last_seg	last line segment
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments) 
+	void traverse(std::vector<std::vector<Segment_2> > & segments,
+		const partitioner_t &p, const Segment_2 last_seg) 
 	{
 		if(visited) return;
 		visited = true;
@@ -418,8 +448,6 @@ public:
 		node_edge_map_t node_edge_map;
 
 		// first, check unvisited edge  (and calc center point)
-		Number_type cx=0, cy=0;
-		int count = 0;
 		for(std::vector<edge_t *>::const_iterator i = edges.begin();
 			i != edges.end(); ++i)
 		{
@@ -442,23 +470,17 @@ public:
 					// already there
 					mi->second.push_back(*i);
 				}
-				count ++;
 				Segment_2 seg = (*i)->get_segment();
-				cx += seg.source().x() + seg.target().x();
-				cy += seg.source().y() + seg.target().y();
 			}
-		}
-		if(count)
-		{
-			cx /= count*2;
-			cy /= count*2;
 		}
 
 		node_vector_t node_vector;
 
 		// sort node vector by its distance ...
 		// TODO optimization
-		if(face.is_unbounded()) cx = 0, cy = 0; // for unbounded face, use machine initial point
+		Segment_2 last_seg2 = last_seg;
+		Segment_2 nearest_seg;
+		bool is_first = true;
 		node_edge_map_t tmp = node_edge_map;
 		while(tmp.size() > 0)
 		{
@@ -469,39 +491,52 @@ public:
 				mi != tmp.end(); ++mi)
 			{
 				Segment_2 first_segment = (*mi->second.begin())->get_segment();
-				Number_type px, py, dist;
+				Number_type px, py, dist1, dist2, dist,
+					cx1, cy1, cx2, cy2;
 				px = first_segment.source().x();
 				py = first_segment.source().y();
-				dist = (px-cx)*(px-cx) + (py-cy)*(py-cy);
+				cx1 = last_seg2.source().x();
+				cy1 = last_seg2.source().y();
+				dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
+				cx2 = last_seg2.target().x();
+				cy2 = last_seg2.target().y();
+				dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
+				dist = std::min(dist1, dist2);
 				if(min_dist < 0 || dist < min_dist)
 				{
 					min_dist = dist;
 					min = mi;
-					min_cx = px;
-					min_cy = py;
+					if(is_first)
+					{
+						is_first = false;
+						nearest_seg = first_segment;
+					}
 				}
 			}
 
 			// nearest edges found
-			cx = min_cx;
-			cy = min_cy;
+			last_seg2 = (*min->second.begin())->get_segment();
 			node_vector.push_back(min->first);
 			tmp.erase(min);
 		}
 
+
+
 		// for all unvisited edges, recurse into the opposite face.
-		for(node_vector_t::iterator ni = node_vector.begin();
-			ni != node_vector.end(); ++ni)
+		// (depth first)
+		if(node_vector.size() > 0)
 		{
-			std::vector<Segment_2> vector;
-			edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
-			for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
-				i != unvisited_edges.end(); ++i)
+			for(node_vector_t::reverse_iterator ni = node_vector.rbegin();
+				ni != node_vector.rend(); ++ni)
 			{
-				vector.push_back((*i)->get_segment());
+				std::vector<Segment_2> vector;
+				edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
+				for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
+					i != unvisited_edges.end(); ++i)
+					vector.push_back((*i)->get_segment());
+				(*ni)->traverse(segments, p, nearest_seg);
+				segments.push_back(vector);
 			}
-			(*ni)->traverse(segments);
-			segments.push_back(vector);
 		}
 	}
 
@@ -593,11 +628,12 @@ public:
 	 * start traversing from unbounded edge
 	 * @segments an array of arrays which stores traversed line segments	
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments)
+	void traverse(std::vector<std::vector<Segment_2> > & segments, const partitioner_t &p)
 	{
+		Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
 		node_t * unbounded_node =
 			ensure_node(*unbounded_face);
-		unbounded_node->traverse(segments);
+		unbounded_node->traverse(segments, p, last_segment);
 	}
 
 };
@@ -739,7 +775,7 @@ int main()
 	construct_edge_graph(graph, arr);
 
 	// traverse the graph with topological order
-	graph.traverse(tmp_segments);
+	graph.traverse(tmp_segments, partitioner);
 
 	// do simple cut-sort
 	Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
@@ -785,7 +821,7 @@ int main()
 		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
 		{
 			// skip line segments inserted by partitioner
-			if(!partitioner.should_ignore(*j))
+			if(!partitioner.is_invisible(*j))
 				segments.push_back(*j);
 		}
 	}
