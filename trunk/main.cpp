@@ -21,8 +21,6 @@
 #include <CGAL/Quotient.h>
 #include <CGAL/Arr_segment_traits_2.h>
 #include <CGAL/Arrangement_2.h>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/config/warning_disable.hpp>
 #include <boost/spirit/include/qi.hpp>
@@ -220,109 +218,6 @@ void write_PLT(const std::vector<Segment_2>& segments)
 	file << "PU;" << std::endl; // last PU command and finish the line
 }
 
-
-/**
- * a class for partitioning a polygon into convecies.
- */
-class partitioner_t
-{
-	typedef Kernel K;
-
-	typedef CGAL::Triangulation_vertex_base_2<K>                     Vb;
-	typedef CGAL::Constrained_triangulation_face_base_2<K>           Fb;
-	typedef CGAL::Triangulation_data_structure_2<Vb,Fb>              TDS;
-	typedef CGAL::Exact_predicates_tag                               Itag;
-	typedef CGAL::Constrained_Delaunay_triangulation_2<K, TDS, Itag> CDT;
-	typedef CDT::Point          Point;
-
-	struct lineseg_t
-	{
-		Number_type x1;
-		Number_type y1;
-		Number_type x2;
-		Number_type y2;
-		lineseg_t(
-			Number_type _x1,
-			Number_type _y1, 
-			Number_type _x2, 
-			Number_type _y2): x1(_x1), y1(_y1), x2(_x2), y2(_y2) {};
-		bool operator < (const lineseg_t &rhs ) const
-		{
-			if(x1 < rhs.x1) return true;
-			if(x1 > rhs.x1) return false;
-			if(y1 < rhs.y1) return true;
-			if(y1 > rhs.y1) return false;
-			if(x2 < rhs.x2) return true;
-			if(x2 > rhs.x2) return false;
-			if(y2 < rhs.y2) return true;
-			if(y2 > rhs.y2) return false;
-			return false;
-		}
-	};
-	typedef std::map<lineseg_t, int> lineseg_map_t;
-	lineseg_map_t map;
-
-public:
-	void do_partition(Arrangement_2 & arr)
-	{
-		CDT cdt;
-		Arrangement_2::Edge_const_iterator    eit;
-		for (eit = arr.edges_begin(); eit != arr.edges_end(); ++eit)
-		{
-			Point p1(eit->source()->point().x(), eit->source()->point().y());
-			Point p2(eit->target()->point().x(), eit->target()->point().y());
-			cdt.insert_constraint(p1, p2);
-		}
-
-		std::vector<Segment_2> segments;
-		for (CDT::Finite_edges_iterator eit = cdt.finite_edges_begin();
-			eit != cdt.finite_edges_end(); ++eit)
-		{
-			if (!cdt.is_constrained(*eit))
-			{
-				TDS::Face_handle f1 = eit->first;
-				int vi = eit->second;
-				int ccw = cdt.tds().ccw(vi);
-				int cw  = cdt.tds().cw(vi);
-				TDS::Vertex_handle v1 = f1->vertex(ccw);
-				TDS::Vertex_handle v2 = f1->vertex(cw);
-				Number_type x1,y1,x2,y2;
-				Point_2 p1(x1=v1->point().x(), y1=v1->point().y());
-				Point_2 p2(x2=v2->point().x(), y2=v2->point().y());
-
-				if(sqrt( (double)(x1-x2) * (double)(x1-x2) +
-				 		 (double)(y1-y2) * (double)(y1-y2) ) < 5000.0)
-				{
-
-					segments.push_back(Segment_2(p1, p2));
-
-					map.insert(lineseg_map_t::value_type(lineseg_t(
-						v1->point().x(), v1->point().y(),
-						v2->point().x(), v2->point().y()), 0));
-
-				}
-			}
-			
-		}
-		CGAL::insert (arr, segments.begin(), segments.end());
-	}
-
-	bool is_invisible(const Segment_2 &s) const
-	{
-		Number_type x1 = s.source().x();
-		Number_type y1 = s.source().y();
-		Number_type x2 = s.target().x();
-		Number_type y2 = s.target().y();
-		lineseg_map_t::const_iterator mi;
-		mi = map.find(lineseg_t(x1, y1, x2, y2));
-		if(mi != map.end()) return true;
-		mi = map.find(lineseg_t(x2, y2, x1, y1));
-		if(mi != map.end()) return true;
-		return false;
-	}
-};
-
-
 class node_t;
 
 /**
@@ -352,11 +247,6 @@ public:
 
 	node_t * get_node1() const { return node1; } //!< returns node1
 	node_t * get_node2() const { return node2; } //!< returns node2
-
-	bool is_invisible(const partitioner_t &p) const
-	{
-		return p.is_invisible(get_segment());
-	}
 
 	/**
 	 * Returns CGAL's Segment_2 format line segment
@@ -395,48 +285,23 @@ class node_t
 	std::vector<edge_t *> edges; //!< list of edges
 	bool visited; //!< visited flag used in traversing
 
-	bool has_invisible_edges_cache;
-	bool got_invisible_edges;
 
 public:
 	/**
 	 * The constructor.
 	 * @param	f	CGAL's Face
 	 */
-	node_t(const Arrangement_2::Face & f) :
-		face(f),  visited(false),
-		has_invisible_edges_cache(false),
-		got_invisible_edges(false) {}
+	node_t(const Arrangement_2::Face & f) : face(f),  visited(false) {}
 
 	void insert_edge(edge_t * edge) { edges.push_back(edge); } //!< insert an edge to edge list
 	const std::vector<edge_t *> & get_edges() const { return edges; }
 		//!< returns edge list
-
-	bool has_invisible_edges(const partitioner_t &p)
-	{
-		if(got_invisible_edges) return has_invisible_edges_cache;
-		for(std::vector<edge_t *>::iterator i = edges.begin();
-			i != edges.end(); ++i)
-		{
-			if((*i)->is_invisible(p))
-			{
-				has_invisible_edges_cache = true;
-				break;
-			}
-		}
-		got_invisible_edges = true;
-		std::cerr << "face " << this << " has invisible edges : " << has_invisible_edges_cache << std::endl;
-		return has_invisible_edges_cache;
-	}
-
+	
 	/**
 	 * let traverse on this node.
 	 * @param		segments	an array of arrays which stores traversed line segments
-	 * @param		p			a partitinoer object
-	 * @param		last_seg	last line segment
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments,
-		const partitioner_t &p, Segment_2 &last_seg) 
+	void traverse(std::vector<std::vector<Segment_2> > & segments) 
 	{
 		if(visited) return;
 		visited = true;
@@ -448,6 +313,8 @@ public:
 		node_edge_map_t node_edge_map;
 
 		// first, check unvisited edge  (and calc center point)
+		Number_type cx=0, cy=0;
+		int count = 0;
 		for(std::vector<edge_t *>::const_iterator i = edges.begin();
 			i != edges.end(); ++i)
 		{
@@ -470,109 +337,73 @@ public:
 					// already there
 					mi->second.push_back(*i);
 				}
+				count ++;
 				Segment_2 seg = (*i)->get_segment();
+				cx += seg.source().x() + seg.target().x();
+				cy += seg.source().y() + seg.target().y();
 			}
+		}
+		if(count)
+		{
+			cx /= count*2;
+			cy /= count*2;
 		}
 
 		node_vector_t node_vector;
 
 		// sort node vector by its distance ...
 		// TODO optimization
-		Segment_2 last_seg2 = last_seg;
-		Segment_2 nearest_seg;
-		bool is_first = true;
+		if(face.is_unbounded()) cx = 0, cy = 0; // for unbounded face, use machine initial point
 		node_edge_map_t tmp = node_edge_map;
 		while(tmp.size() > 0)
 		{
 			Number_type min_dist = -1;
 			node_edge_map_t::iterator min = node_edge_map.end();
 			Number_type min_cx, min_cy;
-			Segment_2 min_seg;
 			for(node_edge_map_t::iterator mi = tmp.begin();
 				mi != tmp.end(); ++mi)
 			{
-				edge_vector_t & edges = mi->second;
-				for(edge_vector_t::iterator ei = edges.begin();
-					ei != edges.end(); ++ei)
+				Segment_2 first_segment = (*mi->second.begin())->get_segment();
+				Number_type px, py, dist;
+				px = first_segment.source().x();
+				py = first_segment.source().y();
+				dist = (px-cx)*(px-cx) + (py-cy)*(py-cy);
+				if(min_dist < 0 || dist < min_dist)
 				{
-					Segment_2 lseg = (*ei)->get_segment();
-					Number_type px, py, dist1, dist2, dist,
-						cx1, cy1, cx2, cy2;
-
-					px = lseg.source().x();
-					py = lseg.source().y();
-					cx1 = last_seg2.source().x();
-					cy1 = last_seg2.source().y();
-					dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
-					cx2 = last_seg2.target().x();
-					cy2 = last_seg2.target().y();
-					dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
-					dist = std::min(dist1, dist2);
-
-					px = lseg.target().x();
-					py = lseg.target().y();
-					cx1 = last_seg2.source().x();
-					cy1 = last_seg2.source().y();
-					dist1 = (px-cx1)*(px-cx1) + (py-cy1)*(py-cy1);
-					cx2 = last_seg2.target().x();
-					cy2 = last_seg2.target().y();
-					dist2 = (px-cx2)*(px-cx2) + (py-cy2)*(py-cy2);
-					dist = std::min(dist, std::min(dist1, dist2));
-
-					if((*ei)->is_invisible(p))
-						dist += (1<<30); // low priority for invisible lines
-					if(min_dist < 0 || dist < min_dist)
-					{
-						min_dist = dist;
-						min = mi;
-						min_seg = lseg;
-					}
+					min_dist = dist;
+					min = mi;
+					min_cx = px;
+					min_cy = py;
 				}
 			}
 
 			// nearest edges found
-			if(is_first)
-			{
-				is_first = false;
-				nearest_seg = min_seg;
-			}
-			last_seg2 = min_seg;
+			cx = min_cx;
+			cy = min_cy;
 			node_vector.push_back(min->first);
-
-
-			std::vector<Segment_2> vector;
-			edge_vector_t & unvisited_edges = min->second;
-			for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
-				i != unvisited_edges.end(); ++i)
-				vector.push_back((*i)->get_segment());
-			min->first->traverse(segments, p, min_seg);
-			last_seg2 = min_seg;
-			segments.push_back(vector);
-
 			tmp.erase(min);
 		}
-		last_seg = last_seg2;
-
-#if 0
-
-		// for all unvisited edges, recurse into the opposite face.
-		// (depth first)
-		if(node_vector.size() > 0)
-		{
-			for(node_vector_t::reverse_iterator ni = node_vector.rbegin();
-				ni != node_vector.rend(); ++ni)
-			{
-				std::vector<Segment_2> vector;
-				edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
-				for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
-					i != unvisited_edges.end(); ++i)
-					vector.push_back((*i)->get_segment());
-				(*ni)->traverse(segments, p, nearest_seg);
-				segments.push_back(vector);
-			}
+/*
+		for(node_edge_map_t::iterator mi = node_edge_map.begin();
+			mi != node_edge_map.end(); ++mi)
+ 		{
+			node_vector.push_back(mi->first);
 		}
-
-#endif
+*/
+		// for all unvisited edges, recurse into the opposite face.
+		for(node_vector_t::iterator ni = node_vector.begin();
+			ni != node_vector.end(); ++ni)
+		{
+			std::vector<Segment_2> vector;
+			edge_vector_t & unvisited_edges = node_edge_map.find(*ni)->second;
+			for(std::vector<edge_t *>::const_iterator i = unvisited_edges.begin();
+				i != unvisited_edges.end(); ++i)
+			{
+				vector.push_back((*i)->get_segment());
+			}
+			(*ni)->traverse(segments);
+			segments.push_back(vector);
+		}
 	}
 
 };
@@ -663,12 +494,11 @@ public:
 	 * start traversing from unbounded edge
 	 * @segments an array of arrays which stores traversed line segments	
 	 */
-	void traverse(std::vector<std::vector<Segment_2> > & segments, const partitioner_t &p)
+	void traverse(std::vector<std::vector<Segment_2> > & segments)
 	{
-		Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
 		node_t * unbounded_node =
 			ensure_node(*unbounded_face);
-		unbounded_node->traverse(segments, p, last_segment);
+		unbounded_node->traverse(segments);
 	}
 
 };
@@ -788,7 +618,6 @@ int main()
 
 	std::vector<Segment_2> segments;
 	std::vector<std::vector<Segment_2> >  tmp_segments;
-	partitioner_t partitioner;
 
 	// load PLT
 	plt_parser_t parser;
@@ -803,14 +632,11 @@ int main()
 	// build 2D arrangement
 	CGAL::insert (arr, segments.begin(), segments.end());
 
-	// do partitioning
-	partitioner.do_partition(arr);
-
 	// construct node-edge graph
 	construct_edge_graph(graph, arr);
 
 	// traverse the graph with topological order
-	graph.traverse(tmp_segments, partitioner);
+	graph.traverse(tmp_segments);
 
 	// do simple cut-sort
 	Segment_2 last_segment(Point_2(0,0) , Point_2(1,1));
@@ -854,11 +680,7 @@ int main()
 		i != tmp_segments.end(); ++i)
 	{
 		for(std::vector<Segment_2>::iterator j = i->begin(); j != i->end(); ++j)
-		{
-			// skip line segments inserted by partitioner
-			if(!partitioner.is_invisible(*j))
-				segments.push_back(*j);
-		}
+			segments.push_back(*j);
 	}
 
 	// write PLT out
