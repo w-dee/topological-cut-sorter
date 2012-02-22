@@ -28,7 +28,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <math.h>
 
 // typedefs
 typedef double								Number_type;
@@ -186,6 +185,21 @@ public:
 	}
 };
 
+#ifdef WRITE_INTEGER_PLT
+	typedef long long plt_cord_type;
+
+	static plt_cord_type plt_round(Number_type x)
+	{
+		if(x < 0.0) return (plt_cord_type)(x - 0.5);
+		return             (plt_cord_type)(x + 0.5);
+	}
+	#define ROUND_NUM(x) plt_round(x)
+#else
+	typedef Number_type plt_cord_type;
+	#define ROUND_NUM(x) (x)
+#endif
+
+
 
 /**
  * Write PLT file to stdout.
@@ -195,15 +209,8 @@ void write_PLT(const std::vector<Segment_2>& segments)
 {
 	std::ostream & file = std::cout;
 
-#ifdef WRITE_INTEGER_PLT
-	typedef long long cord_type;
-	#define ROUND_NUM(x) round(x)
-#else
-	typedef Number_type cord_type;
-	#define ROUND_NUM(x) (x)
-#endif
 
-	cord_type x = 0, y = 0;
+	plt_cord_type x = 0, y = 0;
 	bool is_first = true;
 
 	file << "IN;SP0;"; // initial commands
@@ -211,10 +218,10 @@ void write_PLT(const std::vector<Segment_2>& segments)
 	for(std::vector<Segment_2>::const_iterator i = segments.begin();
 		i != segments.end(); ++i)
 	{
-		cord_type
+		plt_cord_type
 			x1 = ROUND_NUM(i->source().x() / scale),
 			y1 = ROUND_NUM(i->source().y() / scale);
-		cord_type
+		plt_cord_type
 			x2 = ROUND_NUM(i->target().x() / scale),
 			y2 = ROUND_NUM(i->target().y() / scale);
 
