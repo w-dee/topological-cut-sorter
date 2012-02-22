@@ -28,9 +28,10 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <math.h>
 
 // typedefs
-typedef long long							Number_type;
+typedef double								Number_type;
 typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
@@ -43,8 +44,10 @@ typedef Arrangement_2::Halfedge_handle		Halfedge_handle;
 
 
 // constants
-static const int scale = 100; //!< coordinates are to be multiplied by
+static const double scale = 1.0; //!< coordinates are to be multiplied by
 	//!< this number to preserve internal numeric precision.
+
+#define WRITE_INTEGER_PLT //!< define this to write integer-only PLT files
 
 
 namespace qi = boost::spirit::qi;
@@ -192,7 +195,15 @@ void write_PLT(const std::vector<Segment_2>& segments)
 {
 	std::ostream & file = std::cout;
 
-	Number_type x = 0, y = 0;
+#ifdef WRITE_INTEGER_PLT
+	typedef long long cord_type;
+	#define ROUND_NUM(x) round(x)
+#else
+	typedef Number_type cord_type;
+	#define ROUND_NUM(x) (x)
+#endif
+
+	cord_type x = 0, y = 0;
 	bool is_first = true;
 
 	file << "IN;SP0;"; // initial commands
@@ -200,12 +211,12 @@ void write_PLT(const std::vector<Segment_2>& segments)
 	for(std::vector<Segment_2>::const_iterator i = segments.begin();
 		i != segments.end(); ++i)
 	{
-		Number_type
-			x1 = i->source().x() / scale,
-			y1 = i->source().y() / scale;
-		Number_type
-			x2 = i->target().x() / scale,
-			y2 = i->target().y() / scale;
+		cord_type
+			x1 = ROUND_NUM(i->source().x() / scale),
+			y1 = ROUND_NUM(i->source().y() / scale);
+		cord_type
+			x2 = ROUND_NUM(i->target().x() / scale),
+			y2 = ROUND_NUM(i->target().y() / scale);
 
 		if(is_first || x != x1 || y != y1) // line discontinued ?
 			file << "PU" << x1 << "," << y1 << ";"; // then use PU
