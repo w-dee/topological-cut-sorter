@@ -30,7 +30,7 @@
 #include <vector>
 
 // typedefs
-typedef double								Number_type;
+typedef CGAL::Quotient<CGAL::MP_Float>		Number_type;
 typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
@@ -190,8 +190,9 @@ public:
 
 	static plt_cord_type plt_round(Number_type x)
 	{
-		if(x < 0.0) return (plt_cord_type)(x - 0.5);
-		return             (plt_cord_type)(x + 0.5);
+		double d = to_double(x); // approx.
+		if(d < 0.0) return (plt_cord_type)(d - 0.5);
+		return             (plt_cord_type)(d + 0.5);
 	}
 	#define ROUND_NUM(x) plt_round(x)
 #else
@@ -544,18 +545,18 @@ static double evaluate(const Segment_2 & s1, const Segment_2 & s2)
 {
 	// first, evaluate its distance
 	double x1,y1,x2,y2;
-	x1 = s1.target().x();
-	y1 = s1.target().y();
-	x2 = s2.source().x();
-	y2 = s2.source().y();
+	x1 = to_double(s1.target().x());
+	y1 = to_double(s1.target().y());
+	x2 = to_double(s2.source().x());
+	y2 = to_double(s2.source().y());
 
 	double dist = sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)) * 2.0;
 
 	// next, evaluate its straightness
-	x1 = s1.target().x() - s1.source().x();
-	y1 = s1.target().y() - s1.source().y();
-	x2 = s2.target().x() - s2.source().x();
-	y2 = s2.target().y() - s2.source().y();
+	x1 = to_double(s1.target().x() - s1.source().x());
+	y1 = to_double(s1.target().y() - s1.source().y());
+	x2 = to_double(s2.target().x() - s2.source().x());
+	y2 = to_double(s2.target().y() - s2.source().y());
 	
 	double divider = sqrt(x1*x1 + y1*y1) * sqrt(x2*x2 + y2*y2);
 	if(divider > 0.0)
