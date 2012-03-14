@@ -35,6 +35,7 @@ typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
 typedef Traits_2::Curve_2					Segment_2;
+typedef Traits_2::Vector_2					Vector_2;
 typedef CGAL::Arrangement_2<Traits_2>		Arrangement_2;
 typedef Arrangement_2::Vertex_handle		Vertex_handle;
 typedef Arrangement_2::Halfedge_handle		Halfedge_handle;
@@ -628,15 +629,95 @@ static void simple_cut_sort(std::vector<Segment_2>& segments, Segment_2 &last_se
 }
 
 /**
+ * Make some short overlap on start and end of the path
+ * @param segments      input segments
+ * @param length		overlap length
+ */
+static void make_overlap(std::vector<Segment_2>& segments, double length)
+{
+	// check segment size
+	if(segments.size() < 3)
+		return; // cannnot make closed path
+
+	// check if last line segment end is first line segment start
+	typedef std::vector<Segment_2> vect_t;
+	typedef CGAL::Segment_2<Kernel> st_seg_t;
+
+	const Segment_2 & last = segments.back();
+	if(last.target() != segments[0].source()) return; // not closed path
+
+	// add first some line segments the the last, until the length meets the given length
+	size_t nth = 0;
+	length *= scale;
+	while(length > 0)
+	{
+		Segment_2 & s = segments[nth++];
+		st_seg_t st_seg(s.source(), s.target());
+		std::cerr << s.source() << " - " << s.target() << std::endl;
+		double s_len = sqrt(to_double(st_seg.squared_length()));
+		std::cerr << s_len << ":" << length << std::endl;
+		if(s_len < length)
+		{
+			// short enough;
+			length -= s_len;
+			segments.push_back(s);
+		}
+		else
+		{
+			// the line segment is longer than length; non-simple case
+			Vector_2 vec = st_seg.to_vector();
+			vec = vec / s_len * length;
+			segments.push_back(Segment_2(s.source(), s.source() + vec));
+			break;
+		}
+	}
+
+}
+
+/**
  * the main function
  */
-int main()
+int main(int argc, char *argv[])
 {
 	Arrangement_2   arr;
 	graph_t graph;
+	double overlap_length = 10.0;
+	bool do_overlap = false;
 
 	std::vector<Segment_2> segments;
 	std::vector<std::vector<Segment_2> >  tmp_segments;
+
+	// parse arguments
+	for(int i = 1; i < argc; i++)
+	{
+		if(argv[i][0] == '-' && argv[i][1] == 'r') // overlap path's start and end
+		{
+			do_overlap = true;
+		}
+		else if(argv[i][0] == '-' && argv[i][1] == 'l') // specify overlap length
+		{
+			char *p = argv[i][2] ? argv[i] + 1 : argv[i++];
+			overlap_length = atof(p);
+			if(overlap_length <= 0.0)
+			{
+				std::cerr << "overlap length must be greater than 0" << std::endl;
+				return 3;
+			}
+		}
+		else
+		{
+			std::cout <<
+				"Topological cut-sorter (GPL3) (C) W.Dee" << std::endl <<
+				" takes an HPGL input from stdin and outputs an HPGL to stdout." << std::endl <<
+				"Options:" << std::endl <<
+				"  -r         : Overlap closed path start and end." << std::endl <<
+				"  -l  <val>  : Overlap length as used in -r option " << std::endl <<
+				"               in HPGL unit, normally 1/1016 inch." << std::endl <<
+				"               The default is 10.0." << std::endl;
+			return 3;
+		}
+	}
+
 
 	// load PLT
 	plt_parser_t parser;
@@ -690,6 +771,16 @@ int main()
 			// check segment direction
 			if(!continued && i->source() == next->source())
 				*i = Segment_2(i->target(), i->source());
+		}
+	}
+
+	// do overlap
+	if(do_overlap)
+	{
+		for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
+			i != tmp_segments.end(); ++i)
+		{
+			make_overlap(*i, overlap_length);
 		}
 	}
 
