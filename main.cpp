@@ -653,9 +653,7 @@ static void make_overlap(std::vector<Segment_2>& segments, double length)
 	{
 		Segment_2 & s = segments[nth++];
 		st_seg_t st_seg(s.source(), s.target());
-		std::cerr << s.source() << " - " << s.target() << std::endl;
 		double s_len = sqrt(to_double(st_seg.squared_length()));
-		std::cerr << s_len << ":" << length << std::endl;
 		if(s_len < length)
 		{
 			// short enough;
