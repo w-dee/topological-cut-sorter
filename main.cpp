@@ -643,29 +643,33 @@ static void make_overlap(std::vector<Segment_2>& segments, double length)
 	typedef std::vector<Segment_2> vect_t;
 	typedef CGAL::Segment_2<Kernel> st_seg_t;
 
-	const Segment_2 & last = segments.back();
-	if(last.target() != segments[0].source()) return; // not closed path
-
-	// add first some line segments the the last, until the length meets the given length
+	size_t orig_size = segments.size();
 	size_t nth = 0;
-	length *= scale;
 	while(length > 0)
 	{
-		Segment_2 & s = segments[nth++];
-		st_seg_t st_seg(s.source(), s.target());
-		double s_len = sqrt(to_double(st_seg.squared_length()));
-		if(s_len < length)
+		size_t prev_nth = (nth == 0) ? (orig_size - 1) : (nth - 1);
+		const Segment_2 & current = segments[nth];
+		const Segment_2 & prev    = segments[prev_nth];
+		if(prev.target() != current.source()) return; // discontinued path
+		nth ++;
+		if(nth >= orig_size) nth = 0;
+
+
+		// add first some line segments the the last, until the length meets the given length
+		st_seg_t st_seg(current.source(), current.target());
+		double current_len = sqrt(to_double(st_seg.squared_length()));
+		if(current_len < length)
 		{
 			// short enough;
-			length -= s_len;
-			segments.push_back(s);
+			length -= current_len;
+			segments.push_back(current);
 		}
 		else
 		{
 			// the line segment is longer than length; non-simple case
 			Vector_2 vec = st_seg.to_vector();
-			vec = vec / s_len * length;
-			segments.push_back(Segment_2(s.source(), s.source() + vec));
+			vec = vec / current_len * length;
+			segments.push_back(Segment_2(current.source(), current.source() + vec));
 			break;
 		}
 	}
@@ -679,7 +683,7 @@ int main(int argc, char *argv[])
 {
 	Arrangement_2   arr;
 	graph_t graph;
-	double overlap_length = 10.0;
+	double overlap_length = 20.0;
 	bool do_overlap = false;
 
 	std::vector<Segment_2> segments;
