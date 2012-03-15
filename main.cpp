@@ -30,7 +30,7 @@
 #include <vector>
 
 // typedefs
-typedef CGAL::Quotient<CGAL::MP_Float>		Number_type;
+typedef CGAL::Quotient<double>				Number_type;
 typedef CGAL::Cartesian<Number_type>		Kernel;
 typedef CGAL::Arr_segment_traits_2<Kernel>	Traits_2;
 typedef Traits_2::Point_2					Point_2;
