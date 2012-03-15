@@ -632,8 +632,9 @@ static void simple_cut_sort(std::vector<Segment_2>& segments, Segment_2 &last_se
  * Make some short overlap on start and end of the path
  * @param segments      input segments
  * @param length		overlap length
+ * @param deg			lest angle which continues overlapping (in degree)
  */
-static void make_overlap(std::vector<Segment_2>& segments, double length)
+static void make_overlap(std::vector<Segment_2>& segments, double length, double deg)
 {
 	// check segment size
 	if(segments.size() < 3)
@@ -643,6 +644,10 @@ static void make_overlap(std::vector<Segment_2>& segments, double length)
 	typedef std::vector<Segment_2> vect_t;
 	typedef CGAL::Segment_2<Kernel> st_seg_t;
 
+	// convert degree to cos(degree)
+	deg = cos((180.0-deg) * (M_PI / 180.0) );
+
+	// start a loop
 	size_t orig_size = segments.size();
 	size_t nth = 0;
 	while(length > 0)
@@ -654,10 +659,28 @@ static void make_overlap(std::vector<Segment_2>& segments, double length)
 		nth ++;
 		if(nth >= orig_size) nth = 0;
 
+		// check segment straightness
+		st_seg_t current_st_seg(current.source(), current.target());
+		st_seg_t prev_st_seg(prev.source(), prev.target());
+		Vector_2 current_vec = current_st_seg.to_vector();
+		Vector_2 prev_vec    = prev_st_seg.to_vector();
+		double current_len = sqrt(
+			to_double(current_vec.x() * current_vec.x() + current_vec.y() * current_vec.y()));
+		double prev_len = sqrt(
+			to_double(prev_vec.x() * prev_vec.x() + prev_vec.y() * prev_vec.y()));
+
+		double divider = current_len * prev_len;
+		if(divider <= 0.0) return; // invalid length; should not happen
+		double cos_th = to_double((current_vec.x()*prev_vec.x() +
+			current_vec.y()*prev_vec.y()) / divider);
+
+		if(cos_th < deg)
+		{
+			// junction angle limit exceeded; stop
+			return;
+		}
 
 		// add first some line segments the the last, until the length meets the given length
-		st_seg_t st_seg(current.source(), current.target());
-		double current_len = sqrt(to_double(st_seg.squared_length()));
 		if(current_len < length)
 		{
 			// short enough;
@@ -667,9 +690,8 @@ static void make_overlap(std::vector<Segment_2>& segments, double length)
 		else
 		{
 			// the line segment is longer than length; non-simple case
-			Vector_2 vec = st_seg.to_vector();
-			vec = vec / current_len * length;
-			segments.push_back(Segment_2(current.source(), current.source() + vec));
+			Vector_2 short_vec = current_vec / current_len * length;
+			segments.push_back(Segment_2(current.source(), current.source() + short_vec));
 			break;
 		}
 	}
@@ -684,6 +706,7 @@ int main(int argc, char *argv[])
 	Arrangement_2   arr;
 	graph_t graph;
 	double overlap_length = 20.0;
+	double overlap_limit_deg = 150;
 	bool do_overlap = false;
 
 	std::vector<Segment_2> segments;
@@ -698,11 +721,21 @@ int main(int argc, char *argv[])
 		}
 		else if(argv[i][0] == '-' && argv[i][1] == 'l') // specify overlap length
 		{
-			char *p = argv[i][2] ? argv[i] + 1 : argv[i++];
+			char *p = argv[i][2] ? argv[i] + 2 : argv[++i];
 			overlap_length = atof(p);
 			if(overlap_length <= 0.0)
 			{
 				std::cerr << "overlap length must be greater than 0" << std::endl;
+				return 3;
+			}
+		}
+		else if(argv[i][0] == '-' && argv[i][1] == 'a') // specify overlap liimt degree
+		{
+			char *p = argv[i][2] ? argv[i] + 2 : argv[++i];
+			overlap_limit_deg = atof(p);
+			if(overlap_limit_deg < 0 || overlap_limit_deg >= 180)
+			{
+				std::cerr << "overlap limit degree must be in 0 to 180" << std::endl;
 				return 3;
 			}
 		}
@@ -715,7 +748,10 @@ int main(int argc, char *argv[])
 				"  -r         : Overlap closed path start and end." << std::endl <<
 				"  -l  <val>  : Overlap length as used in -r option " << std::endl <<
 				"               in HPGL unit, normally 1/1016 inch." << std::endl <<
-				"               The default is 10.0." << std::endl;
+				"  -a  <val>  : Overlap limit angle as used in -r option " << std::endl <<
+				"               in degree. Overlapping will stop where" << std::endl <<
+				"               path line segment junction angle is smaller than this limit." << std::endl <<
+				"               The default is 150.0." << std::endl;
 			return 3;
 		}
 	}
@@ -782,7 +818,7 @@ int main(int argc, char *argv[])
 		for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
 			i != tmp_segments.end(); ++i)
 		{
-			make_overlap(*i, overlap_length);
+			make_overlap(*i, overlap_length, overlap_limit_deg);
 		}
 	}
 
