@@ -629,6 +629,104 @@ static void simple_cut_sort(std::vector<Segment_2>& segments, Segment_2 &last_se
 }
 
 /**
+ * sharp point limit
+ * joint degree above this is not recognized as a sharp joint
+ **/
+#define SHARP_JOINT_MAX 120
+
+
+/**
+ * returns reversed 2d segment
+ */
+static Segment_2 reverse_seg(const Segment_2 & seg)
+{
+	return Segment_2(seg.target(), seg.source());
+}
+
+
+/**
+ * Find most sharp joint point from the list
+ */
+static const Segment_2 find_most_sharp_joint_point(const std::vector<Segment_2>& segments, const Segment_2 & start_point)
+{
+	// check segment size
+	if(segments.size() < 2)
+	{
+		return reverse_seg(segments[0]); // cannnot make joint
+	}
+
+	typedef std::vector<Segment_2> vect_t;
+	typedef CGAL::Segment_2<Kernel> st_seg_t;
+	vect_t candidates;
+
+	// convert degree to cos(degree)
+	const double deg = cos((180-SHARP_JOINT_MAX) * (M_PI / 180.0) );
+
+	// start a loop
+	size_t orig_size = segments.size();
+	for(size_t nth = 0; nth < orig_size; ++ nth)
+	{
+		size_t prev_nth = (nth == 0) ? (orig_size - 1) : (nth - 1);
+		const Segment_2 & current = segments[nth];
+		const Segment_2 & prev    = segments[prev_nth];
+		if(prev.target() != current.source())
+		{
+			// discontinued path
+			// discontinued path may be good point to start plotting
+			candidates.push_back(current);
+		}
+
+		// check segment straightness
+		st_seg_t current_st_seg(current.source(), current.target());
+		st_seg_t prev_st_seg(prev.source(), prev.target());
+		Vector_2 current_vec = current_st_seg.to_vector();
+		Vector_2 prev_vec    = prev_st_seg.to_vector();
+		double current_len = sqrt(
+			to_double(current_vec.x() * current_vec.x() + current_vec.y() * current_vec.y()));
+		double prev_len = sqrt(
+			to_double(prev_vec.x() * prev_vec.x() + prev_vec.y() * prev_vec.y()));
+
+		double divider = current_len * prev_len;
+		if(divider <= 0.0) continue; // invalid length; should not happen
+		double cos_th = to_double((current_vec.x()*prev_vec.x() +
+			current_vec.y()*prev_vec.y()) / divider);
+
+		if(cos_th <  deg)
+		{
+			// sharper than junction angle limit
+			// make this start point
+			candidates.push_back(current);
+		}
+	}
+
+	if(candidates.size() == 0)
+	{
+		candidates.push_back(segments[0]); // push default point
+	}
+
+	// find most nearest point from start_point
+	Segment_2 nearest;
+	double min_len = -1;
+	for(vect_t::iterator i = candidates.begin(); i != candidates.end(); ++i)
+	{
+		double x1,y1,x2,y2;
+		x1 = to_double(i->source().x());
+		y1 = to_double(i->source().y());
+		x2 = to_double(start_point.target().x());
+		y2 = to_double(start_point.target().y());
+		double length = (x1-x2)*(x1-x2) + (y1-y2)*(y1-y2);
+		if(min_len < 0 || min_len > length)
+		{
+			min_len = length;
+			nearest = *i;
+		}
+	}
+
+	return reverse_seg(nearest);
+}
+
+
+/**
  * Make some short overlap on start and end of the path
  * @param segments      input segments
  * @param length		overlap length
@@ -640,7 +738,6 @@ static void make_overlap(std::vector<Segment_2>& segments, double length, double
 	if(segments.size() < 3)
 		return; // cannnot make closed path
 
-	// check if last line segment end is first line segment start
 	typedef std::vector<Segment_2> vect_t;
 	typedef CGAL::Segment_2<Kernel> st_seg_t;
 
@@ -737,7 +834,7 @@ int main(int argc, char *argv[])
 			{
 				std::cerr << "overlap limit degree must be in 0 to 180" << std::endl;
 				return 3;
-			}
+			} 
 		}
 		else
 		{
@@ -811,6 +908,15 @@ int main(int argc, char *argv[])
 				*i = Segment_2(i->target(), i->source());
 		}
 	}
+
+	// find sharper joint as plotting start
+	for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
+		i != tmp_segments.end(); ++i)
+	{
+		last_segment = find_most_sharp_joint_point(*i, last_segment);
+		simple_cut_sort(*i, last_segment);
+	}
+
 
 	// do overlap
 	if(do_overlap)
