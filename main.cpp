@@ -795,6 +795,109 @@ static void make_overlap(std::vector<Segment_2>& segments, double length, double
 
 }
 
+
+/**
+ * Make gates (that is, line segments which are cut after all other line segments are cut)
+ * @param segments      input segments
+ * @param gate_len		gate length
+ * @param interval		gate interval
+ * @param gates			output gate line segments (contents are not cleared)
+ */
+static void make_gates(std::vector<Segment_2>& segments, double gate_len, double interval_len,
+	std::vector<Segment_2>& gates)
+{
+	typedef std::vector<Segment_2> vect_t;
+	typedef CGAL::Segment_2<Kernel> st_seg_t;
+
+	// caluculate total length
+	double total_length = 0;
+	for(vect_t::iterator i = segments.begin(); i != segments.end(); i++)
+	{
+		// check segment length
+		Segment_2 current = *i;
+		st_seg_t current_st_seg(current.source(), current.target());
+		Vector_2 current_vec = current_st_seg.to_vector();
+		double current_len = sqrt(
+			to_double(current_vec.x() * current_vec.x() + current_vec.y() * current_vec.y()));
+		total_length += current_len;
+	}
+
+	// start a loop
+	vect_t out_vect;
+	bool is_interval = true;
+	double next_point = interval_len;
+	for(vect_t::iterator i = segments.begin(); i != segments.end(); i++)
+	{
+		// check segment length
+		Segment_2 current = *i;
+
+		for(;;)
+		{
+			st_seg_t current_st_seg(current.source(), current.target());
+			Vector_2 current_vec = current_st_seg.to_vector();
+			double current_len = sqrt(
+				to_double(current_vec.x() * current_vec.x() + current_vec.y() * current_vec.y()));
+			if(current_len <= 0.0 ) break;
+
+			if(current_len > next_point)
+			{
+				// length exceeds the interval
+				// split the line segment into some gates and its intervals
+				// next split point is at next_point
+				Vector_2 short_vec = current_vec / current_len * next_point;
+				Segment_2 seg (current.source(), current.source() + short_vec);
+				Segment_2 seg2(current.source() + short_vec, current.target());
+				if(is_interval)
+				{
+					out_vect.push_back(seg);
+				}
+				else
+				{
+					gates.push_back(seg);
+				}
+
+				// quick hack to avoid rational numbers becoming too big;
+				// any remedy ?
+				current = Segment_2(
+					Point_2(to_double(seg2.source().x()),
+					        to_double(seg2.source().y())),
+					Point_2(to_double(seg2.target().x()),
+					        to_double(seg2.target().y())));
+
+				current_len -= next_point;
+				total_length -= next_point;
+
+				if(is_interval && total_length >= gate_len)
+				{
+					is_interval = false;
+					next_point = gate_len;
+				}
+				else
+				{
+					is_interval = true;
+					next_point = interval_len;
+				}
+			}
+			else
+			{
+				next_point -= current_len;
+				total_length -= current_len;
+				if(is_interval)
+				{
+					out_vect.push_back(current);
+				}
+				else
+				{
+					gates.push_back(current);
+				}
+				break;
+			}
+		}
+	}
+	segments = out_vect; // overwrite input back
+}
+
+
 /**
  * the main function
  */
@@ -804,7 +907,10 @@ int main(int argc, char *argv[])
 	graph_t graph;
 	double overlap_length = 20.0;
 	double overlap_limit_deg = 150;
+	double gate_length = 120.0;
+	double gate_interval = 600.0;
 	bool do_overlap = false;
+	bool do_gating = false;
 
 	std::vector<Segment_2> segments;
 	std::vector<std::vector<Segment_2> >  tmp_segments;
@@ -815,6 +921,10 @@ int main(int argc, char *argv[])
 		if(argv[i][0] == '-' && argv[i][1] == 'r') // overlap path's start and end
 		{
 			do_overlap = true;
+		}
+		else if(argv[i][0] == '-' && argv[i][1] == 'g') // do gating
+		{
+			do_gating = true;
 		}
 		else if(argv[i][0] == '-' && argv[i][1] == 'l') // specify overlap length
 		{
@@ -848,7 +958,8 @@ int main(int argc, char *argv[])
 				"  -a  <val>  : Overlap limit angle as used in -r option " << std::endl <<
 				"               in degree. Overlapping will stop where" << std::endl <<
 				"               path line segment junction angle is smaller than this limit." << std::endl <<
-				"               The default is 150.0." << std::endl;
+				"               The default is 150.0." << std::endl <<
+				"  -g         : Do gating." << std::endl;
 			return 3;
 		}
 	}
@@ -927,6 +1038,30 @@ int main(int argc, char *argv[])
 			make_overlap(*i, overlap_length, overlap_limit_deg);
 		}
 	}
+
+	// do gating
+	if(do_gating)
+	{
+		std::vector<Segment_2> gates;
+		for(std::vector<std::vector<Segment_2> > ::iterator i = tmp_segments.begin();
+			i != tmp_segments.end(); ++i)
+		{
+			make_gates(*i, gate_length, gate_interval, gates);
+		}
+		tmp_segments.push_back(gates);
+	}
+
+	// see if first cut line segment is only a single line (not a path, nor a curve)
+	if(tmp_segments.size() > 0 && tmp_segments[0].size() == 1)
+	{
+		// insert dummy point at its center
+		Segment_2 current = tmp_segments[0][0];
+		tmp_segments[0].clear();
+		Point_2 center((current.target().x() + current.source().x()) / 2,
+		               (current.target().y() + current.source().y()) / 2);
+ 		tmp_segments[0].push_back(Segment_2(current.source(), center));
+ 		tmp_segments[0].push_back(Segment_2(center, current.target()));
+ 	}
 
 	// flatten segments
 	segments.clear();
